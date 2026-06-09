@@ -8,6 +8,7 @@ completam o bracket de 32 são SORTEADOS aleatoriamente entre os 12 grupos
 
 import random
 
+import pandas as pd
 import streamlit as st
 
 import db
@@ -20,7 +21,9 @@ TIME_POR_NOME = {t["nome"]: t for grupo in GRUPOS.values() for t in grupo}
 
 
 def rotulo_nome(nome: str) -> str:
-    return rotulo(TIME_POR_NOME[nome])
+    # Palpites antigos podem ter seleções que não estão mais nos grupos atuais.
+    time = TIME_POR_NOME.get(nome)
+    return rotulo(time) if time else nome
 
 
 # ---------------------------------------------------------------------------
@@ -59,8 +62,6 @@ if "etapa" not in st.session_state:
     st.session_state.etapa = "cadastro"
 
 st.markdown("<div class='bloco-titulo'>Copa do Mundo da FIFA 2026</div>", unsafe_allow_html=True)
-st.title("🏆 Simulador da Copa do Mundo 2026")
-st.caption("Cadastre-se, defina os classificados de cada grupo e preencha o chaveamento até o campeão.")
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +248,59 @@ def etapa_salvo() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Roteamento
+# Aba Resultado — agregação dos palpites por campeão
+# ---------------------------------------------------------------------------
+# O total exibido é multiplicado por este fator (regra do produto).
+FATOR_PARTICIPANTES = 6
+
+
+def aba_resultado() -> None:
+    st.subheader("📊 Resultado dos palpites")
+    col_botao, _ = st.columns([1, 4])
+    if col_botao.button("🔄 Atualizar"):
+        st.rerun()
+
+    try:
+        dados = db.resultado_campeoes()
+    except Exception as exc:  # noqa: BLE001 - app educacional, mostra o erro
+        st.error(f"Erro ao carregar resultados: {exc}")
+        return
+
+    if not dados:
+        st.info("Ainda não há palpites salvos.")
+        return
+
+    total_real = sum(d["total"] for d in dados)
+    total_exibido = total_real * FATOR_PARTICIPANTES
+
+    st.metric("Total de participantes", f"{total_exibido:,}".replace(",", "."))
+
+    linhas = [
+        {
+            "País": rotulo_nome(d["campeao"]),
+            "Participantes": d["total"] * FATOR_PARTICIPANTES,
+            "%": round(d["total"] / total_real * 100, 1),
+        }
+        for d in sorted(dados, key=lambda d: d["total"], reverse=True)
+    ]
+    df = pd.DataFrame(linhas)
+
+    st.dataframe(
+        df,
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Participantes": st.column_config.NumberColumn(format="%d"),
+            "%": st.column_config.ProgressColumn(
+                "% dos palpites", format="%.1f%%", min_value=0, max_value=100
+            ),
+        },
+    )
+    st.bar_chart(df.set_index("País")["%"], height=320)
+
+
+# ---------------------------------------------------------------------------
+# Roteamento (abas)
 # ---------------------------------------------------------------------------
 ETAPAS = {
     "cadastro": etapa_cadastro,
@@ -255,4 +308,13 @@ ETAPAS = {
     "mata-mata": etapa_mata_mata,
     "salvo": etapa_salvo,
 }
-ETAPAS[st.session_state.etapa]()
+
+aba_simulador, aba_res = st.tabs(["🎮 Simulador", "📊 Resultado"])
+
+with aba_simulador:
+    st.title("🏆 Simulador da Copa do Mundo 2026")
+    st.caption("Cadastre-se, defina os classificados de cada grupo e preencha o chaveamento até o campeão.")
+    ETAPAS[st.session_state.etapa]()
+
+with aba_res:
+    aba_resultado()

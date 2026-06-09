@@ -42,3 +42,14 @@ def salvar_palpite(nome: str, telefone: str, email: str, palpite: dict) -> None:
         {"participant_id": participant_id, "palpite": palpite},
         returning=ReturnMethod.minimal,
     ).execute()
+
+
+def resultado_campeoes() -> list[dict]:
+    """Retorna a agregação de palpites por campeão: [{'campeao': str, 'total': int}, ...].
+
+    Usa a RPC `resultado_campeoes` (SECURITY DEFINER), que expõe só a contagem
+    agregada ao público — sem política de SELECT na tabela nem leitura de PII.
+    """
+    client = get_client()
+    resposta = client.rpc("resultado_campeoes").execute()
+    return resposta.data or []
