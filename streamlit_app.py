@@ -1,9 +1,12 @@
 """Simulador da Copa do Mundo 2026 — Streamlit + Supabase.
 
 Fluxo em etapas: cadastro → fase de grupos (1º e 2º) → mata-mata → salvo.
-Os 8 últimos lugares do bracket de 32 são preenchidos automaticamente com os
-3º colocados dos grupos A–H. Só o resultado do mata-mata é gravado.
+O usuário escolhe só 1º e 2º de cada grupo; os 8 "melhores terceiros" que
+completam o bracket de 32 são SORTEADOS aleatoriamente entre os 12 grupos
+(1 terceiro por grupo). Só o resultado do mata-mata é gravado.
 """
+
+import random
 
 import streamlit as st
 
@@ -114,29 +117,41 @@ def etapa_grupos() -> None:
 
     faltando = len(GRUPOS) - len(resultado)
     st.divider()
-    if st.button("Montar chaveamento", type="primary", disabled=faltando > 0):
-        st.session_state.bracket = montar_bracket(resultado)
+    if st.button("Sortear terceiros e montar chaveamento", type="primary", disabled=faltando > 0):
+        st.session_state.bracket, st.session_state.repescados = montar_bracket(resultado)
         st.session_state.etapa = "mata-mata"
         st.rerun()
     if faltando > 0:
         st.info(f"Defina 1º e 2º em todos os grupos ({faltando} faltando).")
 
 
-def montar_bracket(grupos: dict) -> list:
-    """Ordena as 32 seleções em slots: 12 primeiros + 8 terceiros (grupos A–H) + 12 segundos.
+def montar_bracket(grupos: dict) -> tuple[list, list]:
+    """Monta os 32 classificados e sorteia os 8 melhores terceiros.
 
-    O 3º de cada grupo é a seleção de maior posição (ordem original dos dados) entre as
-    duas não escolhidas. Pareando slot i com slot i+16, nenhum time encontra outro do
-    mesmo grupo na 1ª rodada (as posições diferem de 12, 20 e 8 — nunca de 16).
+    No formato da Copa 2026 avançam os 2 primeiros de cada grupo (24) + os 8
+    melhores terceiros (32 ao todo). Como este é um app educacional, em vez do
+    desempate oficial da FIFA, os 8 terceiros são SORTEADOS aleatoriamente entre
+    os 12 grupos (o 3º de cada grupo é a seleção de maior posição entre as duas
+    não escolhidas pelo usuário).
+
+    Retorna (slots, repescados): 32 slots na ordem 12 primeiros + 8 terceiros +
+    12 segundos (pareando slot i com i+16), e a lista dos nomes sorteados.
     """
     primeiros = [grupos[l]["1"] for l in GRUPOS]   # 12
     segundos = [grupos[l]["2"] for l in GRUPOS]     # 12
-    terceiros = []
-    for l in list(GRUPOS)[:8]:                        # A–H fornecem os 8 repescados
+
+    # 3º de cada grupo: melhor posicionado entre os dois não escolhidos.
+    terceiro_por_grupo = {}
+    for l in GRUPOS:
         escolhidos = {grupos[l]["1"], grupos[l]["2"]}
         restantes = [t["nome"] for t in GRUPOS[l] if t["nome"] not in escolhidos]
-        terceiros.append(restantes[0])
-    return primeiros + terceiros + segundos          # 12 + 8 + 12 = 32
+        terceiro_por_grupo[l] = restantes[0]
+
+    grupos_sorteados = random.sample(list(GRUPOS), 8)   # 8 dos 12 grupos
+    terceiros = [terceiro_por_grupo[l] for l in grupos_sorteados]
+
+    slots = primeiros + terceiros + segundos             # 12 + 8 + 12 = 32
+    return slots, terceiros
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +169,13 @@ RODADAS = [
 def etapa_mata_mata() -> None:
     st.subheader("3. Mata-mata")
     st.write("Escolha o vencedor de cada jogo. A próxima rodada aparece quando a atual estiver completa.")
+
+    repescados = st.session_state.get("repescados", [])
+    if repescados:
+        st.info(
+            "🎲 **Melhores terceiros sorteados** (entram no Round of 32): "
+            + ", ".join(rotulo_nome(n) for n in repescados)
+        )
 
     slots = st.session_state.bracket
     jogos = [[slots[i], slots[i + 16]] for i in range(16)]
